@@ -54,3 +54,9 @@ export  interface ActionResult {
     success: boolean,
     error: string,
 }
+
+export interface IAgent {
+    agentId: string,
+    name: string,
+    execute(task: AgentTask): Promise<any[]>// needs a return type definition
+}

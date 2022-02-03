@@ -1,33 +1,16 @@
-import axios, { AxiosInstance } from 'axios'
-import { 
-    AgentTask, EntityType, TargetAction, actionParam, EntityStatus, ActionResult 
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios'
+import {
+    AgentTask, EntityType, TargetAction, actionParam, EntityStatus, ActionResult, IAgent
 } from './interfaces';
 import { config } from './config'
 
-export default class DV360 {
-    private apiClient: AxiosInstance|null = null;
-    private options: any = {};
 
-    private setApiClient(options: any) {
-        const headers = {
-            'Authorization': `Bearer ${options.authToken}`,
-            'Content-Type': 'application/json',
-        };
 
-        this.apiClient = axios.create({
-            baseURL: options.baseUrl,
-            responseType: 'json',
-            headers,
-        });
-    }
+export default class DV360 implements IAgent {
 
-    private setOptions(task: AgentTask) {
-        this.options = {
-            authToken: task.tokens.auth,
-            baseURL: config.baseUrl,
-        };
-    }
-
+    agentId:string = config.id; 
+    name = config.name;
+     
     private getEntityType(t: string) {
         return 'IO' == t ? EntityType.IO : EntityType.LI;
     }
@@ -53,40 +36,56 @@ export default class DV360 {
         };
     }
 
-    private keyValueArrayToObject(a: Array<actionParam>) {
+    private convertToObject(a: Array<actionParam>) {
         const o = {};
         a.forEach(p => { o[p.key] = p.value });
         return o;
     }
 
-    private async doAction(action: TargetAction) {
-        const currentActionOptions = this.keyValueArrayToObject(action.params);
+    private async executeAction(action: TargetAction, token: any) {
 
-        const url = this.options.baseURL + '/advertisers'
-            + `/${currentActionOptions['advertiserId']}`
-            + `/${this.getEntityType(currentActionOptions['entityType'])}`
-            + `/${currentActionOptions['entityId']}`
-            + '?updateMask=entityStatus';
+        const actionParams = this.convertToObject(action.params);
+
+        const url = config.baseUrl + this.getEntityEndpointUrl(actionParams);
 
         const data = {
-            entityStatus: this.getEntityStatusString(currentActionOptions['action'])
+            entityStatus: this.getEntityStatusString(actionParams['action'])
         };
 
-        const res = await this.apiClient!.patch(url, data)
+        const requestConfig: AxiosRequestConfig = this.getRequestConfig(url, token);
+
+        const res = await axios.patch(url, data, requestConfig);
         return res.data;
     }
 
-    public async execute(task: AgentTask) {
-        this.setOptions(task);
-        this.setApiClient(this.options);
+    private getEntityEndpointUrl(actionParams: any) {
+        return '/advertisers'
+            + `/${actionParams['advertiserId']}`
+            + `/${this.getEntityType(actionParams['entityType'])}`
+            + `/${actionParams['entityId']}`
+            + '?updateMask=entityStatus';
+    }
 
-        const result: Array<any> = [];
+    private getRequestConfig(url: string, token: string): AxiosRequestConfig<any> {
+        return {
+            url: url,
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            responseType: 'json',
+            responseEncoding: 'utf-8'
+        };
+    }
+
+    public async execute(task: AgentTask) {
+        const token = task.tokens.auth;
+        const result: Array<any> = []; // We need a type.
         for (const action of task.ruleResult.actions) {
             try {
-                const data = await this.doAction(action);
+                const data = await this.executeAction(action, token);
                 result.push(this.transform(task, action, data));
             } catch (err) {
-                //console.error(err);
+
                 result.push(this.transform(task, action, {}, err));
             }
         }
@@ -95,7 +94,7 @@ export default class DV360 {
     }
 
     // TODO
-    public async getMetadata() {}
+    public async getMetadata() { }
 
     // TODO: Method to query DV360 entities for the UI
 }
